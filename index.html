@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Claude Code — Architecture Deep Dive</title>
+  <title>Grievance Automation Platform — Architecture & Plan</title>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <style>
     :root {
@@ -16,8 +16,11 @@
       --accent2: #1a7f37;
       --accent3: #8250df;
       --accent4: #bc4c00;
+      --danger: #cf222e;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
+</style>
+  <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
       background: var(--bg);
@@ -28,15 +31,14 @@
       text-align: center;
       padding: 3rem 1rem 2rem;
       border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, #f0f7ff 0%, #f6f0ff 50%, #fff5f0 100%);
     }
-    header h1 { font-size: 2.4rem; font-weight: 700; }
-    header p { color: var(--muted); margin-top: .5rem; font-size: 1.1rem; }
-</style>
-  <style>
+    header h1 { font-size: 2.2rem; font-weight: 700; }
+    header p { color: var(--muted); margin-top: .5rem; font-size: 1.05rem; max-width: 700px; margin-left: auto; margin-right: auto; }
     .container { max-width: 1400px; margin: 0 auto; padding: 2rem 1.5rem; }
     section { margin-bottom: 3rem; }
     section h2 {
-      font-size: 1.5rem;
+      font-size: 1.45rem;
       color: var(--accent);
       margin-bottom: .5rem;
       padding-bottom: .5rem;
@@ -57,28 +59,60 @@
     }
     .mermaid svg { max-width: 100%; height: auto; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.2rem; }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 1.5rem;
     }
-    .card h3 { color: var(--accent2); font-size: 1.1rem; margin-bottom: .5rem; }
-    .card p { color: var(--muted); font-size: .95rem; }
-    .card ul { color: var(--muted); font-size: .95rem; padding-left: 1.2rem; }
+    .card h3 { font-size: 1.05rem; margin-bottom: .5rem; }
+    .card p, .card ul { color: var(--muted); font-size: .93rem; }
+    .card ul { padding-left: 1.2rem; }
     .card ul li { margin-bottom: .25rem; }
+    .card code { background: #eff1f3; padding: 1px 5px; border-radius: 4px; font-size: .85rem; }
     .badge {
       display: inline-block;
-      font-size: .75rem;
+      font-size: .72rem;
       padding: 2px 8px;
       border-radius: 999px;
       font-weight: 600;
       margin-right: .4rem;
+      vertical-align: middle;
     }
     .badge-blue { background: #ddf4ff; color: var(--accent); }
     .badge-green { background: #dafbe1; color: var(--accent2); }
     .badge-purple { background: #fbefff; color: var(--accent3); }
     .badge-orange { background: #fff1e5; color: var(--accent4); }
+    .badge-red { background: #ffebe9; color: var(--danger); }
+    .phase-tag {
+      display: inline-block;
+      font-size: .7rem;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-left: .5rem;
+      vertical-align: middle;
+    }
+    .phase-tag.p1 { background: #ddf4ff; color: var(--accent); }
+    .phase-tag.p2 { background: #dafbe1; color: var(--accent2); }
+    .phase-tag.p3 { background: #fbefff; color: var(--accent3); }
+    .phase-tag.p4 { background: #fff1e5; color: var(--accent4); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .93rem;
+      margin-top: 1rem;
+    }
+    th, td {
+      text-align: left;
+      padding: .6rem .8rem;
+      border: 1px solid var(--border);
+    }
+    th { background: var(--surface); font-weight: 600; }
+    td { color: var(--muted); }
     footer {
       text-align: center;
       padding: 2rem;
@@ -90,800 +124,894 @@
 </head>
 <body>
 <header>
-  <h1>Claude Code — Architecture Deep Dive</h1>
-  <p>System design, scalability patterns, and engineering tricks of the trade</p>
+  <h1>Grievance Automation Platform</h1>
+  <p>SOP-driven, LLM-powered code generation for automating repetitive CRM grievance tickets — from upload to ServiceNow deployment</p>
 </header>
 <div class="container">
 <!-- ============================================================ -->
-<!-- 1. HIGH-LEVEL SYSTEM OVERVIEW -->
+<!-- 1. PLATFORM OVERVIEW -->
 <!-- ============================================================ -->
 <section>
-  <h2>1. High-Level System Overview</h2>
+  <h2>1. Platform Overview — End-to-End Flow</h2>
   <p class="desc">
-    The application is a CLI-first AI coding assistant built with Bun/TypeScript and Ink (React for terminals).
-    It supports interactive REPL, headless SDK, and remote bridge modes — all sharing a single QueryEngine core.
+    A user uploads an SOP document describing how a grievance type is resolved, along with sample input/output pairs.
+    The platform parses the SOP, generates executable code via AWS Bedrock, tests it against the samples,
+    and on success deploys it as a ServiceNow Automation Record.
   </p>
   <div class="mermaid">
 graph TB
-    subgraph Entrypoints["🚀 Entrypoints"]
-        CLI["cli.tsx<br/>Bootstrap + Fast Paths"]
-        SDK["SDK Entrypoint<br/>Headless / --print"]
-        MCP_EP["MCP Entrypoint<br/>Server Mode"]
-        BRIDGE_EP["Bridge Entrypoint<br/>Remote Control"]
-        DAEMON["Daemon<br/>Long-running Supervisor"]
+    subgraph Upload["① Upload & Parse"]
+        USER["CRM Analyst"]
+        SOP["SOP Document<br/>(PDF / DOCX / Markdown)"]
+        SAMPLES["Sample I/O Pairs<br/>(CSV / JSON / Excel)"]
+        PARSER["SOP Parser<br/>Extract steps, rules,<br/>DB queries, conditions"]
     end
 
-    CLI -->|"dynamic import"| MAIN["main.tsx<br/>Commander CLI Parser<br/>4600+ lines"]
-    SDK --> QE
-    MCP_EP --> MCP_SRV["MCP Server"]
+    subgraph Generate["② LLM Code Generation"]
+        BEDROCK["AWS Bedrock<br/>Claude / Titan"]
+        PROMPT_ENG["Prompt Engine<br/>SOP → structured prompt"]
+        CODE_GEN["Generated Code<br/>Python / JS runbook"]
+        SCHEMA_DISC["Schema Discovery<br/>DB introspection"]
+    end
 
-    MAIN -->|interactive| REPL["REPL Screen<br/>Ink TUI"]
-    MAIN -->|"--print"| QE["QueryEngine<br/>Core Query Loop"]
+    subgraph Test["③ Automated Testing"]
+        SANDBOX["Sandbox Environment<br/>Isolated DB replica"]
+        RUNNER["Test Runner<br/>Sample I/O validation"]
+        DIFF["Output Diff Engine<br/>Expected vs Actual"]
+        RETRY["Retry Loop<br/>Fix code via LLM"]
+    end
 
-    REPL --> QE
-    BRIDGE_EP --> BRIDGE_MAIN["bridgeMain.ts<br/>Multi-Session Poll Loop"]
+    subgraph Deploy["④ Deploy & Register"]
+        STAGING["Staging Validation<br/>Dry-run on live data"]
+        SNOW["ServiceNow API<br/>Create Automation Record"]
+        MONITOR["Monitoring<br/>Execution logs + alerts"]
+        ROLLBACK["Rollback<br/>Version control"]
+    end
+
+    USER -->|"uploads"| SOP
+    USER -->|"uploads"| SAMPLES
+    SOP --> PARSER
+    SAMPLES --> PARSER
+
+    PARSER -->|"structured SOP"| PROMPT_ENG
+    PROMPT_ENG --> BEDROCK
+    SCHEMA_DISC -->|"table schemas"| PROMPT_ENG
+    BEDROCK -->|"generated code"| CODE_GEN
+
+    CODE_GEN --> SANDBOX
+    SAMPLES -->|"test cases"| RUNNER
+    SANDBOX --> RUNNER
+    RUNNER --> DIFF
+    DIFF -->|"failures"| RETRY
+    RETRY -->|"fix prompt"| BEDROCK
+    DIFF -->|"all pass"| STAGING
+
+    STAGING -->|"approved"| SNOW
+    SNOW --> MONITOR
+    MONITOR -->|"failure spike"| ROLLBACK
+
+    style Upload fill:#ddf4ff,stroke:#0969da,stroke-width:2px,color:#1f2328
+    style Generate fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#1f2328
+    style Test fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#1f2328
+    style Deploy fill:#fff1e5,stroke:#bc4c00,stroke-width:2px,color:#1f2328
+  </div>
+</section>
+<!-- ============================================================ -->
+<!-- 2. SYSTEM ARCHITECTURE -->
+<!-- ============================================================ -->
+<section>
+  <h2>2. System Architecture — Component Map</h2>
+  <p class="desc">
+    Inspired by the Claude Code codebase patterns: a core engine with pluggable tools, immutable state management,
+    transport-agnostic I/O, and a permission/validation layer before any destructive operation.
+  </p>
+  <div class="mermaid">
+graph TB
+    subgraph Frontend["🖥️ Web Portal (React)"]
+        UPLOAD_UI["SOP Upload UI<br/>Drag-drop + form"]
+        DASH["Dashboard<br/>Automation status"]
+        TEST_VIEW["Test Results Viewer<br/>Diff + logs"]
+        APPROVAL["Approval Workflow<br/>Human-in-the-loop"]
+    end
+
+    subgraph API["⚡ API Layer (FastAPI / Node)"]
+        REST["REST API<br/>CRUD + webhooks"]
+        AUTH["Auth Middleware<br/>SSO / RBAC"]
+        QUEUE["Task Queue<br/>SQS / Celery"]
+        WS_API["WebSocket<br/>Live progress"]
+    end
 
     subgraph Core["⚙️ Core Engine"]
-        QE -->|"async generator"| QUERY["query.ts<br/>API Call + Tool Loop"]
-        QUERY --> CLAUDE_API["Anthropic API<br/>Claude Models"]
-        QUERY --> TOOLS["Tool System<br/>30+ Built-in Tools"]
-        QUERY --> PERMS["Permission System<br/>allow / deny / ask"]
+        SOP_PARSER["SOP Parser<br/>PDF/DOCX → structured JSON"]
+        PROMPT_BUILD["Prompt Builder<br/>SOP + schema → prompt"]
+        CODE_ENGINE["Code Generation Engine<br/>Bedrock API calls"]
+        TEST_ENGINE["Test Engine<br/>Sandbox execution"]
+        DEPLOY_ENGINE["Deploy Engine<br/>ServiceNow integration"]
     end
 
-    subgraph State["📦 State Management"]
-        STORE["Zustand-like Store<br/>Immutable Updates"]
-        APP_STATE["AppState<br/>Session + UI State"]
-        BOOTSTRAP["Bootstrap State<br/>Global Singletons"]
+    subgraph Infra["☁️ AWS Infrastructure"]
+        BEDROCK_SVC["AWS Bedrock<br/>Claude 3.5 / Titan"]
+        S3["S3<br/>SOP docs + artifacts"]
+        RDS["RDS / Aurora<br/>Platform metadata"]
+        SANDBOX_DB["Sandbox DB<br/>Isolated replica"]
+        SECRETS["Secrets Manager<br/>DB creds + API keys"]
+        LAMBDA["Lambda<br/>Async code execution"]
     end
 
-    subgraph Services["🔌 Services Layer"]
-        MCP_CLIENT["MCP Clients<br/>stdio / SSE / HTTP / WS"]
-        PLUGINS["Plugin System<br/>Versioned + Bundled"]
-        SKILLS["Skills System<br/>Bundled + User"]
-        ANALYTICS["Analytics<br/>GrowthBook + Telemetry"]
-        POLICY["Policy Limits<br/>Enterprise Controls"]
+    subgraph External["🔗 External Systems"]
+        CRM_DB["CRM Database<br/>Production"]
+        SNOW_API["ServiceNow API<br/>Automation Records"]
+        SLACK_INT["Slack / Teams<br/>Notifications"]
     end
 
-    QE --> STORE
-    QE --> MCP_CLIENT
-    QE --> PLUGINS
-    QE --> SKILLS
-    REPL --> APP_STATE
+    Frontend --> API
+    API --> Core
+    Core --> Infra
+    Core --> External
 
-    style Entrypoints fill:#ddf4ff,stroke:#0969da,stroke-width:2px,color:#1f2328
+    UPLOAD_UI --> REST
+    REST --> SOP_PARSER
+    SOP_PARSER --> PROMPT_BUILD
+    PROMPT_BUILD --> CODE_ENGINE
+    CODE_ENGINE --> BEDROCK_SVC
+    CODE_ENGINE --> TEST_ENGINE
+    TEST_ENGINE --> SANDBOX_DB
+    TEST_ENGINE -->|"pass"| DEPLOY_ENGINE
+    DEPLOY_ENGINE --> SNOW_API
+    DEPLOY_ENGINE --> CRM_DB
+
+    QUEUE --> CODE_ENGINE
+    QUEUE --> TEST_ENGINE
+    WS_API --> DASH
+
+    style Frontend fill:#ddf4ff,stroke:#0969da,stroke-width:2px,color:#1f2328
+    style API fill:#f0f7ff,stroke:#0969da,color:#1f2328
     style Core fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#1f2328
-    style State fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#1f2328
-    style Services fill:#fff1e5,stroke:#bc4c00,stroke-width:2px,color:#1f2328
+    style Infra fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#1f2328
+    style External fill:#fff1e5,stroke:#bc4c00,stroke-width:2px,color:#1f2328
   </div>
 </section>
 <!-- ============================================================ -->
-<!-- 2. QUERY ENGINE & CONVERSATION LIFECYCLE -->
+<!-- 3. SOP PARSING PIPELINE -->
 <!-- ============================================================ -->
 <section>
-  <h2>2. QueryEngine & Conversation Lifecycle</h2>
+  <h2>3. SOP Parsing Pipeline — Document to Structured Intent</h2>
   <p class="desc">
-    QueryEngine owns the full query lifecycle per conversation. Each submitMessage() call is an async generator
-    that yields SDK messages. It manages tool execution, permission checks, transcript persistence, and usage tracking.
-  </p>
-  <div class="mermaid">
-sequenceDiagram
-    participant User
-    participant QE as QueryEngine
-    participant PUI as processUserInput
-    participant API as Anthropic API
-    participant Tool as Tool System
-    participant Perm as Permission System
-    participant FS as Session Storage
-
-    User->>QE: submitMessage(prompt)
-    QE->>PUI: processUserInput(input)
-    PUI-->>QE: messages, shouldQuery, allowedTools
-
-    QE->>FS: recordTranscript(messages)
-    Note over QE: yield system_init message
-
-    loop Query Loop (max turns)
-        QE->>API: query(messages, systemPrompt, tools)
-        API-->>QE: stream assistant response
-
-        alt Tool Use Requested
-            QE->>Perm: canUseTool(tool, input)
-            alt Permission Granted
-                Perm-->>QE: allow
-                QE->>Tool: tool.call(args, context)
-                Tool-->>QE: ToolResult + newMessages
-                QE->>FS: recordTranscript(updated)
-                Note over QE: yield tool_result
-            else Permission Denied
-                Perm-->>QE: deny
-                Note over QE: Track denial, yield rejection
-            end
-        else Text Response (end_turn)
-            Note over QE: yield result{success}
-        end
-
-        QE->>QE: Track usage, update state
-    end
-
-    QE-->>User: yield final result
-  </div>
-</section>
-<!-- ============================================================ -->
-<!-- 3. BRIDGE / REMOTE CONTROL — MULTI-SESSION SCALABILITY -->
-<!-- ============================================================ -->
-<section>
-  <h2>3. Bridge / Remote Control — Multi-Session Scalability</h2>
-  <p class="desc">
-    The bridge system enables remote control of Claude Code sessions. It supports multiple concurrent sessions
-    per environment with configurable spawn modes (single-session, worktree isolation, same-dir).
-    Scalability is achieved through poll-based work distribution, heartbeat liveness, and capacity-wake signaling.
-  </p>
-  <div class="mermaid">
-graph TB
-    subgraph WebUI["🌐 claude.ai / Web Client"]
-        USER_A["User A"]
-        USER_B["User B"]
-        USER_C["User C"]
-    end
-
-    subgraph Server["☁️ Backend API"]
-        WORK_QUEUE["Work Queue<br/>(Redis PEL)"]
-        SESSION_INGRESS["Session Ingress<br/>WebSocket + HTTP"]
-        ENV_API["Environments API<br/>Register / Poll / Ack"]
-    end
-
-    subgraph Bridge["🖥️ Bridge Process (bridgeMain.ts)"]
-        POLL_LOOP["Poll Loop<br/>Exponential Backoff"]
-        CAP_WAKE["Capacity Wake<br/>Signal Primitive"]
-        HB["Heartbeat Loop<br/>JWT Liveness"]
-        TOKEN_REFRESH["Token Refresh<br/>Scheduler"]
-
-        subgraph Sessions["Active Sessions (max N)"]
-            S1["Session 1<br/>Child Process"]
-            S2["Session 2<br/>Child Process"]
-            S3["Session 3<br/>Child Process"]
-        end
-
-        subgraph SpawnModes["Spawn Modes"]
-            SM1["single-session<br/>1:1 lifecycle"]
-            SM2["worktree<br/>Git worktree isolation"]
-            SM3["same-dir<br/>Shared CWD"]
-        end
-    end
-
-    USER_A -->|"create session"| WORK_QUEUE
-    USER_B -->|"create session"| WORK_QUEUE
-    USER_C -->|"create session"| WORK_QUEUE
-
-    POLL_LOOP -->|"pollForWork()"| ENV_API
-    ENV_API -->|"WorkResponse"| POLL_LOOP
-    POLL_LOOP -->|"spawn child"| Sessions
-    HB -->|"heartbeatWork()"| ENV_API
-    TOKEN_REFRESH -->|"reconnectSession()"| ENV_API
-
-    S1 <-->|"NDJSON stdio"| SESSION_INGRESS
-    S2 <-->|"NDJSON stdio"| SESSION_INGRESS
-    S3 <-->|"NDJSON stdio"| SESSION_INGRESS
-
-    Sessions -->|"session done"| CAP_WAKE
-    CAP_WAKE -->|"wake signal"| POLL_LOOP
-
-    style WebUI fill:#ddf4ff,stroke:#0969da
-    style Server fill:#ffebe9,stroke:#cf222e
-    style Bridge fill:#dafbe1,stroke:#1a7f37
-    style Sessions fill:#ddf4ff,stroke:#0969da
-    style SpawnModes fill:#fff1e5,stroke:#bc4c00
-  </div>
-</section>
-<!-- ============================================================ -->
-<!-- 4. TRANSPORT LAYER — HYBRID READ/WRITE ARCHITECTURE -->
-<!-- ============================================================ -->
-<section>
-  <h2>4. Transport Layer — Hybrid Read/Write Architecture</h2>
-  <p class="desc">
-    The transport layer uses a split-protocol design: WebSocket for low-latency reads, HTTP POST for reliable writes.
-    The SerialBatchEventUploader serializes all writes through a single queue with backpressure, retry, and batching.
-    SSE transport adds sequence-number-based resumption for CCR v2.
+    The SOP document is the source of truth. The parser extracts a structured representation:
+    steps, decision branches, DB operations, validation rules, and expected outcomes.
+    This structured SOP becomes the prompt context for code generation.
   </p>
   <div class="mermaid">
 graph LR
-    subgraph Client["Claude Code Process"]
-        WRITE["write(msg)"]
-        BATCH["writeBatch(msgs)"]
-        STREAM_BUF["Stream Event Buffer<br/>100ms delay"]
+    subgraph Input["Raw Input"]
+        PDF["PDF / DOCX"]
+        MD["Markdown"]
+        FORM["Structured Form<br/>(manual entry)"]
+    end
 
-        subgraph Uploader["SerialBatchEventUploader"]
-            QUEUE["Pending Queue<br/>maxQueueSize: 100K"]
-            DRAIN["Drain Loop<br/>Serial, 1 POST in-flight"]
-            RETRY["Retry Logic<br/>Exp. Backoff + Jitter"]
-            BP["Backpressure<br/>enqueue() blocks"]
+    subgraph Extract["Extraction Layer"]
+        OCR["Text Extraction<br/>PyPDF2 / python-docx"]
+        LLM_PARSE["LLM Parsing<br/>Bedrock: extract structure"]
+        VALIDATE_SOP["Schema Validation<br/>Required fields check"]
+    end
+
+    subgraph StructuredSOP["Structured SOP (JSON)"]
+        META["Metadata<br/>name, category, priority"]
+        STEPS["Ordered Steps<br/>1. Fetch ticket<br/>2. Query customer<br/>3. Check policy<br/>4. Apply resolution"]
+        DECISIONS["Decision Trees<br/>if amount > X → escalate<br/>if status == Y → close"]
+        DB_OPS["DB Operations<br/>SELECT, UPDATE, INSERT<br/>table names, joins"]
+        VALIDATIONS["Validation Rules<br/>required fields,<br/>value ranges, formats"]
+        OUTPUTS["Expected Outputs<br/>status changes,<br/>notifications, logs"]
+    end
+
+    subgraph Enrichment["Schema Enrichment"]
+        DB_INTRO["DB Introspection<br/>INFORMATION_SCHEMA"]
+        FK_MAP["FK Relationship Map"]
+        ENUM_VALS["Enum / Lookup Values"]
+    end
+
+    Input --> Extract
+    Extract --> StructuredSOP
+    Enrichment -->|"augment"| StructuredSOP
+
+    PDF --> OCR
+    MD --> OCR
+    FORM --> VALIDATE_SOP
+    OCR --> LLM_PARSE
+    LLM_PARSE --> VALIDATE_SOP
+
+    DB_INTRO --> FK_MAP
+    DB_INTRO --> ENUM_VALS
+
+    style Input fill:#fff1e5,stroke:#bc4c00,color:#1f2328
+    style Extract fill:#fbefff,stroke:#8250df,color:#1f2328
+    style StructuredSOP fill:#dafbe1,stroke:#1a7f37,color:#1f2328
+    style Enrichment fill:#ddf4ff,stroke:#0969da,color:#1f2328
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 4. CODE GENERATION ENGINE -->
+<!-- ============================================================ -->
+<section>
+  <h2>4. Code Generation Engine — LLM-Powered Runbook Builder</h2>
+  <p class="desc">
+    Inspired by Claude Code's QueryEngine pattern: an iterative loop where the LLM generates code,
+    the system validates it, and failures feed back as context for the next generation attempt.
+    The prompt includes the structured SOP, DB schema, and a code template with guardrails.
+  </p>
+  <div class="mermaid">
+sequenceDiagram
+    participant PB as Prompt Builder
+    participant BR as AWS Bedrock
+    participant VAL as Code Validator
+    participant SB as Sandbox
+    participant STORE as Artifact Store
+
+    PB->>PB: Assemble prompt:<br/>structured SOP + DB schema<br/>+ code template + guardrails
+
+    loop Generation Loop (max 5 attempts)
+        PB->>BR: Generate code (streaming)
+        BR-->>PB: Python/JS runbook
+
+        PB->>VAL: Static analysis<br/>(AST parse, lint, type check)
+
+        alt Syntax/Lint errors
+            VAL-->>PB: Error details
+            PB->>PB: Append errors to prompt context
+        else Valid code
+            VAL-->>PB: Pass
+
+            PB->>SB: Execute against sandbox DB
+            SB-->>PB: Runtime result
+
+            alt Runtime error
+                PB->>PB: Append traceback to prompt
+            else Success
+                PB->>STORE: Save versioned artifact
+                Note over STORE: code + metadata + SOP ref
+            end
         end
     end
 
-    subgraph Transports["Transport Variants"]
-        HT["HybridTransport<br/>WS reads + POST writes"]
-        SSE["SSETransport<br/>SSE reads + POST writes"]
-        WS["WebSocketTransport<br/>WS bidirectional"]
-    end
-
-    subgraph Server["Session Ingress"]
-        WS_EP["WebSocket Endpoint<br/>/ws/{session_id}"]
-        SSE_EP["SSE Endpoint<br/>/events/stream"]
-        POST_EP["POST Endpoint<br/>/events"]
-    end
-
-    WRITE --> STREAM_BUF
-    STREAM_BUF -->|"flush timer"| QUEUE
-    WRITE -->|"non-stream"| QUEUE
-    BATCH --> QUEUE
-    QUEUE --> DRAIN
-    DRAIN -->|"success"| BP
-    DRAIN -->|"failure"| RETRY
-    RETRY -->|"re-queue front"| QUEUE
-
-    HT -->|"reads"| WS_EP
-    HT -->|"writes"| POST_EP
-    SSE -->|"reads + Last-Event-ID"| SSE_EP
-    SSE -->|"writes"| POST_EP
-    WS <-->|"bidirectional"| WS_EP
-
-    style Client fill:#dafbe1,stroke:#1a7f37
-    style Uploader fill:#ddf4ff,stroke:#0969da
-    style Transports fill:#fbefff,stroke:#8250df
-    style Server fill:#fff1e5,stroke:#bc4c00
+    PB-->>PB: Max attempts → flag for human review
   </div>
 </section>
 <!-- ============================================================ -->
-<!-- 5. TOOL SYSTEM ARCHITECTURE -->
+<!-- 5. PROMPT ENGINEERING STRATEGY -->
 <!-- ============================================================ -->
 <section>
-  <h2>5. Tool System Architecture</h2>
+  <h2>5. Prompt Engineering Strategy</h2>
   <p class="desc">
-    Tools are the primary way Claude interacts with the user's environment. Each tool implements a strict interface
-    with permission checks, input validation, concurrency safety flags, and structured result rendering.
-    The buildTool() factory provides fail-closed defaults.
+    The prompt is the most critical piece. It must produce safe, correct, idempotent code
+    that handles edge cases. The strategy uses a layered prompt with system instructions,
+    SOP context, schema context, and output constraints.
   </p>
   <div class="mermaid">
 graph TB
-    subgraph ToolInterface["🔧 Tool Interface (Tool.ts)"]
-        SCHEMA["inputSchema<br/>Zod validation"]
-        CALL["call()<br/>Execute tool"]
-        PERMS["checkPermissions()<br/>Tool-specific rules"]
-        VALIDATE["validateInput()<br/>Pre-execution check"]
-        DESC["description()<br/>Dynamic prompt"]
-        RENDER["renderToolUseMessage()<br/>UI rendering"]
-        FLAGS["Flags: isReadOnly, isDestructive,<br/>isConcurrencySafe, shouldDefer"]
+    subgraph PromptLayers["Prompt Assembly (layered)"]
+        L1["Layer 1: System Instructions<br/>You are a code generator for CRM automation.<br/>Generate safe, idempotent Python code.<br/>Always use parameterized queries.<br/>Never DELETE without WHERE clause.<br/>Always wrap in transactions."]
+        L2["Layer 2: SOP Context<br/>Structured SOP JSON<br/>(steps, decisions, DB ops)"]
+        L3["Layer 3: DB Schema<br/>Table definitions, FKs,<br/>column types, enums,<br/>sample rows"]
+        L4["Layer 4: Code Template<br/>Function signature,<br/>logging pattern,<br/>error handling skeleton,<br/>rollback pattern"]
+        L5["Layer 5: Output Constraints<br/>Return format,<br/>status codes,<br/>audit trail fields"]
+        L6["Layer 6: Sample I/O<br/>Input ticket → expected output<br/>(few-shot examples)"]
     end
 
-    subgraph BuiltinTools["Built-in Tools (30+)"]
-        direction LR
-        FS_TOOLS["File Tools<br/>Read / Write / Edit"]
-        BASH["BashTool<br/>Shell execution"]
-        SEARCH["Search Tools<br/>Glob / Grep"]
-        WEB["Web Tools<br/>Fetch / Search"]
-        AGENT["AgentTool<br/>Sub-agent spawning"]
-        TASK_TOOLS["Task Tools<br/>Create / List / Stop"]
-        MCP_TOOL["MCPTool<br/>Dynamic MCP proxy"]
-        LSP_TOOL["LSPTool<br/>Language Server"]
+    subgraph Guardrails["Safety Guardrails"]
+        G1["No raw SQL — ORM or parameterized only"]
+        G2["Transaction wrapping mandatory"]
+        G3["Idempotency check at entry"]
+        G4["Audit log every mutation"]
+        G5["Rate limiting on external calls"]
+        G6["Timeout on all DB operations"]
     end
 
-    subgraph PermissionFlow["Permission Flow"]
-        AUTO["Auto Mode<br/>Classifier-based"]
-        DEFAULT["Default Mode<br/>Ask user"]
-        BYPASS["Bypass Mode<br/>Allow all"]
-        PLAN["Plan Mode<br/>Read-only"]
-        HOOKS["Pre/Post Tool Hooks<br/>Custom gates"]
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6
+    PromptLayers --> Guardrails
+
+    style PromptLayers fill:#fbefff,stroke:#8250df,color:#1f2328
+    style Guardrails fill:#ffebe9,stroke:#cf222e,color:#1f2328
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 6. TESTING PIPELINE -->
+<!-- ============================================================ -->
+<section>
+  <h2>6. Testing Pipeline — Rigorous Validation Before Deploy</h2>
+  <p class="desc">
+    Inspired by the Claude Code codebase's permission system and sandbox patterns:
+    every generated runbook goes through multiple validation gates before it touches production.
+    The test pipeline uses the uploaded sample I/O as ground truth.
+  </p>
+  <div class="mermaid">
+graph TB
+    subgraph Gate1["Gate 1: Static Analysis"]
+        AST["AST Parse<br/>Valid syntax?"]
+        LINT["Linter<br/>Style + safety rules"]
+        TYPE["Type Check<br/>mypy / pyright"]
+        SEC["Security Scan<br/>SQL injection patterns,<br/>hardcoded creds,<br/>unsafe operations"]
     end
 
-    subgraph Concurrency["Concurrency Model"]
-        SAFE["Concurrency Safe<br/>Read, Glob, Grep"]
-        UNSAFE["Not Safe<br/>Write, Edit, Bash"]
-        POOL["Tool Pool<br/>Parallel safe tools"]
+    subgraph Gate2["Gate 2: Unit Tests (Sandbox)"]
+        SEED["Seed sandbox DB<br/>from sample inputs"]
+        EXEC["Execute runbook<br/>against each sample"]
+        COMPARE["Compare output<br/>vs expected output"]
+        COVERAGE["Coverage check<br/>all SOP branches hit?"]
     end
 
-    CALL --> VALIDATE
-    VALIDATE --> PERMS
-    PERMS --> PermissionFlow
-    PermissionFlow -->|"allowed"| CALL
-    CALL --> RENDER
+    subgraph Gate3["Gate 3: Integration Tests"]
+        EDGE["Edge cases<br/>null fields, duplicates,<br/>concurrent execution"]
+        IDEM["Idempotency test<br/>run twice, same result"]
+        ROLLBACK_T["Rollback test<br/>force error mid-run,<br/>verify clean state"]
+        PERF["Performance test<br/>execution time < threshold"]
+    end
 
-    BuiltinTools --> ToolInterface
-    FLAGS --> Concurrency
+    subgraph Gate4["Gate 4: Staging Dry-Run"]
+        LIVE_DATA["Run against staging<br/>with real data snapshot"]
+        HUMAN["Human review<br/>of output diff"]
+        APPROVE["Approval gate<br/>manager sign-off"]
+    end
 
-    style ToolInterface fill:#dafbe1,stroke:#1a7f37
-    style BuiltinTools fill:#ddf4ff,stroke:#0969da
-    style PermissionFlow fill:#ffebe9,stroke:#cf222e
-    style Concurrency fill:#fff1e5,stroke:#bc4c00
+    Gate1 -->|"pass"| Gate2
+    Gate2 -->|"pass"| Gate3
+    Gate3 -->|"pass"| Gate4
+    Gate4 -->|"approved"| DEPLOY["Deploy to Production"]
+
+    Gate1 -->|"fail"| FIX1["Feed errors to LLM<br/>regenerate code"]
+    Gate2 -->|"fail"| FIX2["Feed diff to LLM<br/>fix logic"]
+    Gate3 -->|"fail"| FIX3["Feed failure to LLM<br/>add handling"]
+
+    style Gate1 fill:#ddf4ff,stroke:#0969da,color:#1f2328
+    style Gate2 fill:#dafbe1,stroke:#1a7f37,color:#1f2328
+    style Gate3 fill:#fbefff,stroke:#8250df,color:#1f2328
+    style Gate4 fill:#fff1e5,stroke:#bc4c00,color:#1f2328
   </div>
 </section>
 <!-- ============================================================ -->
-<!-- 6. TASK SYSTEM — BACKGROUND WORK MANAGEMENT -->
+<!-- 7. SERVICENOW DEPLOYMENT -->
 <!-- ============================================================ -->
 <section>
-  <h2>6. Task System — Background Work Management</h2>
+  <h2>7. ServiceNow Deployment — Automation Record Lifecycle</h2>
   <p class="desc">
-    Tasks represent background work units (shell commands, sub-agents, remote agents, workflows).
-    Each task type has its own lifecycle, output capture, and cleanup logic. Tasks are tracked in AppState
-    and can be foregrounded, backgrounded, or killed.
+    Once code passes all gates, the platform creates an Automation Record in ServiceNow
+    via the Table API. The record links the runbook, SOP reference, test results, and
+    execution configuration. ServiceNow's Flow Designer triggers the runbook on matching tickets.
   </p>
   <div class="mermaid">
-stateDiagram-v2
-    [*] --> pending: generateTaskId()
-    pending --> running: spawn / start
-    running --> completed: exit 0
-    running --> failed: exit non-zero
-    running --> killed: user kill / timeout
+sequenceDiagram
+    participant Platform as Automation Platform
+    participant S3 as S3 Artifact Store
+    participant SNOW as ServiceNow API
+    participant FD as Flow Designer
+    participant CRM as CRM Database
 
-    completed --> [*]
-    failed --> [*]
-    killed --> [*]
+    Platform->>S3: Upload runbook artifact<br/>(versioned, signed)
+    Platform->>SNOW: POST /api/now/table/x_auto_record<br/>Create Automation Record
 
-    state running {
-        [*] --> foreground
-        foreground --> background: user backgrounds
-        background --> foreground: user foregrounds
+    Note over SNOW: Record contains:<br/>• SOP reference ID<br/>• Runbook S3 URI<br/>• Trigger conditions<br/>• Test result summary<br/>• Rollback version<br/>• Owner / approver
+
+    SNOW->>FD: Register trigger rule<br/>(grievance_type == X<br/>AND status == new)
+
+    Note over FD: When matching ticket arrives:
+
+    FD->>Platform: Webhook: execute runbook
+    Platform->>S3: Fetch runbook
+    Platform->>CRM: Execute runbook<br/>(parameterized queries)
+    CRM-->>Platform: Result
+    Platform->>SNOW: Update ticket<br/>+ attach execution log
+    Platform->>SNOW: Update Automation Record<br/>(last_run, success_count)
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 8. DATA MODEL -->
+<!-- ============================================================ -->
+<section>
+  <h2>8. Data Model — Platform Entities</h2>
+  <p class="desc">
+    The platform's own metadata store tracks SOPs, generated runbooks, test runs, deployments,
+    and execution history. This is separate from the CRM database the runbooks operate on.
+  </p>
+  <div class="mermaid">
+erDiagram
+    SOP {
+        uuid id PK
+        string name
+        string category
+        text raw_content
+        json structured_content
+        string status "draft|active|archived"
+        timestamp created_at
+        string uploaded_by
     }
 
-    note right of pending
-        Task Types:
-        • local_bash — Shell commands
-        • local_agent — Sub-agent processes
-        • remote_agent — Remote CCR agents
-        • in_process_teammate — In-process swarm
-        • local_workflow — Multi-step workflows
-        • monitor_mcp — MCP server monitors
-        • dream — Background analysis
-    end note
+    SAMPLE_IO {
+        uuid id PK
+        uuid sop_id FK
+        json input_data
+        json expected_output
+        string source "historical|manual"
+    }
+
+    RUNBOOK {
+        uuid id PK
+        uuid sop_id FK
+        int version
+        text code
+        string language "python|javascript"
+        string status "generated|testing|passed|failed|deployed"
+        json generation_metadata
+        timestamp created_at
+    }
+
+    TEST_RUN {
+        uuid id PK
+        uuid runbook_id FK
+        string gate "static|unit|integration|staging"
+        string result "pass|fail"
+        json details
+        float duration_ms
+        timestamp run_at
+    }
+
+    DEPLOYMENT {
+        uuid id PK
+        uuid runbook_id FK
+        string snow_record_id
+        string environment "staging|production"
+        string status "active|rolled_back|disabled"
+        timestamp deployed_at
+        string deployed_by
+    }
+
+    EXECUTION_LOG {
+        uuid id PK
+        uuid deployment_id FK
+        string ticket_id
+        string result "success|failure|timeout"
+        json input_snapshot
+        json output_snapshot
+        float duration_ms
+        timestamp executed_at
+    }
+
+    SOP ||--o{ SAMPLE_IO : "has samples"
+    SOP ||--o{ RUNBOOK : "generates"
+    RUNBOOK ||--o{ TEST_RUN : "tested by"
+    RUNBOOK ||--o{ DEPLOYMENT : "deployed as"
+    DEPLOYMENT ||--o{ EXECUTION_LOG : "produces"
   </div>
 </section>
-
 <!-- ============================================================ -->
-<!-- 7. SESSION & STATE MANAGEMENT -->
+<!-- 9. SECURITY & SAFETY MODEL -->
 <!-- ============================================================ -->
 <section>
-  <h2>7. Session & State Management</h2>
+  <h2>9. Security & Safety Model</h2>
   <p class="desc">
-    State is managed through a minimal Zustand-like store with immutable updates and listener subscriptions.
-    Session persistence uses NDJSON transcript files with lazy JSON serialization and write queuing.
-    Bootstrap state holds process-wide singletons (session ID, CWD, model, flags).
+    Borrowing from Claude Code's fail-closed permission system: every generated operation
+    must pass through multiple safety layers. No code runs against production without
+    explicit human approval and passing all automated gates.
   </p>
   <div class="mermaid">
 graph TB
-    subgraph Store["Store (store.ts)"]
-        GET["getState()"]
-        SET["setState(updater)"]
-        SUB["subscribe(listener)"]
-        ONCHANGE["onChange callback"]
+    subgraph CodeSafety["Code Safety (build time)"]
+        PARAM["Parameterized queries only<br/>No string concatenation in SQL"]
+        TRANS["Transaction wrapping<br/>Auto-rollback on error"]
+        IDEM_C["Idempotency guard<br/>Check-before-write pattern"]
+        AUDIT["Audit trail<br/>Log every mutation with before/after"]
+        TIMEOUT["Timeout enforcement<br/>Max 30s per operation"]
     end
 
-    subgraph AppState["AppState Shape"]
-        TOOL_PERM["toolPermissionContext<br/>mode, rules, directories"]
-        FAST_MODE["fastMode<br/>speed vs quality"]
-        FILE_HIST["fileHistory<br/>snapshot tracking"]
-        ATTRIBUTION["attribution<br/>commit tracking"]
-        TASKS_STATE["tasks<br/>Map&lt;id, TaskState&gt;"]
-        PLUGINS_STATE["plugins<br/>enabled, errors"]
+    subgraph AccessControl["Access Control (runtime)"]
+        RBAC["RBAC<br/>Analyst → upload<br/>Reviewer → approve<br/>Admin → deploy"]
+        DB_PERMS["DB Permissions<br/>Runbook user has<br/>SELECT + UPDATE only<br/>No DROP, TRUNCATE, DELETE*"]
+        SNOW_SCOPE["ServiceNow Scope<br/>Scoped app, limited tables"]
+        SECRETS_MGR["Secrets Manager<br/>No creds in code"]
     end
 
-    subgraph Bootstrap["Bootstrap State (singletons)"]
-        SESSION_ID["sessionId"]
-        CWD_STATE["cwd"]
-        MODEL["mainLoopModel"]
-        CLIENT_TYPE["clientType"]
-        SDK_BETAS["sdkBetas"]
-        FLAGS["isInteractive, isKairosActive,<br/>sessionPersistenceDisabled"]
+    subgraph RuntimeSafety["Runtime Safety"]
+        SANDBOX_ISO["Sandbox Isolation<br/>Separate DB, no prod access"]
+        RATE_LIMIT["Rate Limiting<br/>Max executions per minute"]
+        CIRCUIT["Circuit Breaker<br/>Disable on failure spike"]
+        ROLLBACK_AUTO["Auto-Rollback<br/>Revert on error rate > 5%"]
     end
 
-    subgraph Persistence["Session Persistence"]
-        TRANSCRIPT["NDJSON Transcript<br/>~/.claude/sessions/"]
-        WRITE_QUEUE["Write Queue<br/>100ms lazy stringify"]
-        FLUSH["flushSessionStorage()<br/>Eager flush for cowork"]
+    subgraph Observability["Observability"]
+        LOGS["Structured Logs<br/>CloudWatch / ELK"]
+        METRICS["Metrics<br/>Success rate, latency, errors"]
+        ALERTS["Alerts<br/>PagerDuty / Slack"]
+        DRIFT["Drift Detection<br/>Schema changes → disable"]
     end
 
-    SET --> ONCHANGE
-    ONCHANGE --> SUB
-    Store --> AppState
-    AppState --> Persistence
-    TRANSCRIPT --> WRITE_QUEUE
+    CodeSafety --> AccessControl
+    AccessControl --> RuntimeSafety
+    RuntimeSafety --> Observability
 
-    style Store fill:#fbefff,stroke:#8250df
-    style AppState fill:#dafbe1,stroke:#1a7f37
-    style Bootstrap fill:#ddf4ff,stroke:#0969da
-    style Persistence fill:#fff1e5,stroke:#bc4c00
+    style CodeSafety fill:#ffebe9,stroke:#cf222e,color:#1f2328
+    style AccessControl fill:#ddf4ff,stroke:#0969da,color:#1f2328
+    style RuntimeSafety fill:#fff1e5,stroke:#bc4c00,color:#1f2328
+    style Observability fill:#dafbe1,stroke:#1a7f37,color:#1f2328
   </div>
 </section>
 <!-- ============================================================ -->
-<!-- 8. MCP & PLUGIN EXTENSIBILITY -->
+<!-- 10. SCALABILITY ARCHITECTURE -->
 <!-- ============================================================ -->
 <section>
-  <h2>8. MCP & Plugin Extensibility</h2>
+  <h2>10. Scalability Architecture — Handling Volume</h2>
   <p class="desc">
-    The Model Context Protocol (MCP) system supports multiple transport types and scoped configurations.
-    Plugins are versioned, cache-managed, and can provide tools, commands, and resources.
-    Both systems support hot-reload via file change detectors.
+    Inspired by the bridge's multi-session polling and capacity-wake patterns:
+    the platform uses queue-based decoupling, async execution, and horizontal scaling
+    to handle many SOPs and high-volume ticket automation simultaneously.
   </p>
   <div class="mermaid">
 graph TB
-    subgraph MCPConfig["MCP Configuration Scopes"]
-        LOCAL["local<br/>.claude/mcp.json"]
-        USER_CFG["user<br/>~/.claude/mcp.json"]
-        PROJECT["project<br/>CLAUDE.md refs"]
-        ENTERPRISE["enterprise<br/>MDM / policy"]
-        CLAUDEAI["claude.ai<br/>proxy servers"]
-        MANAGED["managed<br/>remote settings"]
+    subgraph Ingestion["Ingestion (fan-in)"]
+        UPLOAD_Q["Upload Queue<br/>SQS FIFO"]
+        PARSE_WORKERS["Parser Workers<br/>Lambda / ECS<br/>Auto-scaling"]
     end
 
-    subgraph MCPTransports["MCP Transports"]
-        STDIO["stdio<br/>Subprocess"]
-        SSE_MCP["sse<br/>Server-Sent Events"]
-        HTTP_MCP["http<br/>Streamable HTTP"]
-        WS_MCP["ws<br/>WebSocket"]
-        SDK_MCP["sdk<br/>In-process"]
-        IDE_MCP["sse-ide / ws-ide<br/>IDE Extensions"]
+    subgraph Generation["Generation (CPU-bound)"]
+        GEN_Q["Generation Queue<br/>SQS Standard"]
+        GEN_WORKERS["Code Gen Workers<br/>ECS Fargate<br/>Bedrock API calls"]
+        BEDROCK_POOL["Bedrock Connection Pool<br/>Rate-limited, retry"]
     end
 
-    subgraph MCPLifecycle["Server Lifecycle"]
-        PENDING_S["pending"]
-        CONNECTED_S["connected"]
-        FAILED_S["failed"]
-        NEEDS_AUTH["needs-auth<br/>OAuth / XAA"]
-        DISABLED_S["disabled"]
+    subgraph Testing["Testing (I/O-bound)"]
+        TEST_Q["Test Queue<br/>SQS Standard"]
+        TEST_WORKERS["Test Workers<br/>ECS Fargate<br/>Sandbox DB per worker"]
+        DB_POOL["Sandbox DB Pool<br/>Pre-provisioned replicas"]
     end
 
-    subgraph Plugins["Plugin System"]
-        BUNDLED["Bundled Plugins<br/>Built-in"]
-        VERSIONED["Versioned Plugins<br/>Cache-managed"]
-        MANAGED_P["Managed Plugins<br/>Enterprise-pushed"]
-        CACHE["Plugin Cache<br/>Orphan cleanup"]
+    subgraph Execution["Execution (high-volume)"]
+        TRIGGER_Q["Trigger Queue<br/>SQS / SNS"]
+        EXEC_WORKERS["Execution Workers<br/>Lambda<br/>Concurrency: 1000"]
+        CRM_POOL["CRM DB Pool<br/>Connection pooling<br/>Read replicas"]
     end
 
-    MCPConfig -->|"merge precedence"| MCPTransports
-    MCPTransports --> MCPLifecycle
-    CONNECTED_S -->|"provides"| TOOLS_MCP["Tools + Commands + Resources"]
+    UPLOAD_Q --> PARSE_WORKERS
+    PARSE_WORKERS --> GEN_Q
+    GEN_Q --> GEN_WORKERS
+    GEN_WORKERS --> BEDROCK_POOL
+    GEN_WORKERS --> TEST_Q
+    TEST_Q --> TEST_WORKERS
+    TEST_WORKERS --> DB_POOL
 
-    Plugins -->|"provides"| TOOLS_MCP
+    TRIGGER_Q --> EXEC_WORKERS
+    EXEC_WORKERS --> CRM_POOL
 
-    style MCPConfig fill:#ddf4ff,stroke:#0969da
-    style MCPTransports fill:#fbefff,stroke:#8250df
-    style MCPLifecycle fill:#dafbe1,stroke:#1a7f37
-    style Plugins fill:#fff1e5,stroke:#bc4c00
+    style Ingestion fill:#ddf4ff,stroke:#0969da,color:#1f2328
+    style Generation fill:#fbefff,stroke:#8250df,color:#1f2328
+    style Testing fill:#dafbe1,stroke:#1a7f37,color:#1f2328
+    style Execution fill:#fff1e5,stroke:#bc4c00,color:#1f2328
   </div>
 </section>
 
 <!-- ============================================================ -->
-<!-- 9. AUTHENTICATION & SECURITY -->
+<!-- 11. PATTERNS BORROWED FROM CLAUDE CODE -->
 <!-- ============================================================ -->
 <section>
-  <h2>9. Authentication & Security</h2>
-  <p class="desc">
-    Multi-layered auth: OAuth tokens for claude.ai, API keys for direct access, JWT for session ingress,
-    trusted device tokens for bridge environments. Sandbox mode restricts file system and network access.
-    Policy limits enforce enterprise controls.
-  </p>
-  <div class="mermaid">
-graph TB
-    subgraph Auth["Authentication Layers"]
-        OAUTH["OAuth 2.0<br/>claude.ai subscription"]
-        API_KEY["API Key<br/>Direct Anthropic API"]
-        JWT["JWT Tokens<br/>Session Ingress Auth"]
-        TRUSTED["Trusted Device<br/>Bridge registration"]
-        AWS_AUTH["AWS Bedrock<br/>IAM credentials"]
-        GCP_AUTH["GCP Vertex<br/>Service account"]
-    end
-
-    subgraph Security["Security Controls"]
-        SANDBOX["Sandbox Manager<br/>File + Network restrictions"]
-        PERM_MODE["Permission Modes<br/>default / auto / bypass / plan"]
-        POLICY["Policy Limits<br/>Enterprise MDM"]
-        TRUST["Trust Dialog<br/>First-run acceptance"]
-        DENIAL["Denial Tracking<br/>Fallback to prompting"]
-    end
-
-    subgraph TokenMgmt["Token Management"]
-        KEYCHAIN["macOS Keychain<br/>Prefetch at startup"]
-        REFRESH["Token Refresh<br/>5min before expiry"]
-        INGRESS["Session Ingress Token<br/>Per-session JWT"]
-        WORK_SECRET["Work Secret<br/>Base64url JSON"]
-    end
-
-    Auth --> Security
-    Auth --> TokenMgmt
-    JWT --> REFRESH
-    OAUTH --> KEYCHAIN
-    TRUSTED --> WORK_SECRET
-
-    style Auth fill:#ffebe9,stroke:#cf222e
-    style Security fill:#dafbe1,stroke:#1a7f37
-    style TokenMgmt fill:#ddf4ff,stroke:#0969da
-  </div>
-</section>
-<!-- ============================================================ -->
-<!-- 10. STARTUP OPTIMIZATION & PERFORMANCE TRICKS -->
-<!-- ============================================================ -->
-<section>
-  <h2>10. Startup Optimization & Performance Tricks</h2>
-  <p class="desc">
-    The codebase employs aggressive startup optimization: parallel prefetching, deferred imports,
-    dead code elimination via feature flags, and a profiling checkpoint system.
-    The goal is sub-200ms time-to-first-render.
-  </p>
-  <div class="mermaid">
-graph LR
-    subgraph Phase1["Phase 1: Entry (0ms)"]
-        PROFILE["profileCheckpoint<br/>Mark entry"]
-        MDM["startMdmRawRead<br/>Parallel subprocess"]
-        KEYCHAIN_PF["startKeychainPrefetch<br/>Parallel keychain reads"]
-    end
-
-    subgraph Phase2["Phase 2: Fast Paths"]
-        VERSION["--version<br/>Zero imports, instant"]
-        BRIDGE_FP["remote-control<br/>Minimal imports"]
-        DAEMON_FP["daemon<br/>Lean worker"]
-        BG_FP["ps/logs/attach/kill<br/>Session management"]
-    end
-
-    subgraph Phase3["Phase 3: Full CLI"]
-        EARLY_INPUT["Capture early input"]
-        LAUNCH_SCREEN["Launch screen animation"]
-        MAIN_IMPORT["Import main.tsx<br/>~135ms module eval"]
-        INIT["init()<br/>Configs + Auth"]
-    end
-
-    subgraph Phase4["Phase 4: Deferred"]
-        USER_INIT["initUser()"]
-        SYS_CTX["getSystemContext()"]
-        TIPS["getRelevantTips()"]
-        FILE_COUNT["countFilesRoundedRg()"]
-        MODEL_CAP["refreshModelCapabilities()"]
-        CHANGE_DET["Settings/Skill detectors"]
-    end
-
-    Phase1 -->|"parallel"| Phase2
-    Phase2 -->|"no match"| Phase3
-    Phase3 -->|"after first render"| Phase4
-
-    style Phase1 fill:#ffebe9,stroke:#cf222e
-    style Phase2 fill:#ddf4ff,stroke:#0969da
-    style Phase3 fill:#dafbe1,stroke:#1a7f37
-    style Phase4 fill:#fff1e5,stroke:#bc4c00
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<!-- 11. COMMAND SYSTEM -->
-<!-- ============================================================ -->
-<section>
-  <h2>11. Command System — Slash Commands & Subcommands</h2>
-  <p class="desc">
-    80+ slash commands organized in individual directories. Each command exports a registration function
-    with metadata (name, description, aliases). Commands can be local (client-side) or trigger API queries.
-    The system supports plugin-provided commands and migration of commands to plugins.
-  </p>
-  <div class="mermaid">
-graph TB
-    subgraph CommandCategories["Command Categories"]
-        direction LR
-        SESSION_CMD["Session<br/>/resume, /session,<br/>/clear, /compact"]
-        CONFIG_CMD["Config<br/>/config, /model,<br/>/permissions, /theme"]
-        DEV_CMD["Development<br/>/commit, /review,<br/>/branch, /diff"]
-        TOOL_CMD["Tools<br/>/mcp, /plugin,<br/>/skills, /agents"]
-        NAV_CMD["Navigation<br/>/files, /context,<br/>/memory, /help"]
-        REMOTE_CMD["Remote<br/>/bridge, /teleport,<br/>/share, /export"]
-    end
-
-    subgraph CommandFlow["Command Processing"]
-        PARSE["parseSlashCommand()"]
-        MATCH["Match command name"]
-        EXEC["Execute handler"]
-        LOCAL["Local result<br/>(no API call)"]
-        QUERY_CMD["Trigger query<br/>(API call)"]
-    end
-
-    CommandCategories --> PARSE
-    PARSE --> MATCH
-    MATCH --> EXEC
-    EXEC --> LOCAL
-    EXEC --> QUERY_CMD
-
-    style CommandCategories fill:#ddf4ff,stroke:#0969da
-    style CommandFlow fill:#dafbe1,stroke:#1a7f37
-  </div>
-</section>
-<!-- ============================================================ -->
-<!-- 12. SCALABILITY & MULTI-USER PATTERNS -->
-<!-- ============================================================ -->
-<section>
-  <h2>12. Scalability & Multi-User Patterns</h2>
+  <h2>11. Patterns Borrowed from the Claude Code Codebase</h2>
   <div class="grid">
     <div class="card">
-      <h3><span class="badge badge-blue">Bridge</span> Multi-Session Polling</h3>
-      <p>The bridge poll loop supports N concurrent sessions per environment. GrowthBook-gated
-         <code>tengu_ccr_bridge_multi_session</code> controls rollout. Poll intervals are
-         server-configurable via <code>tengu_bridge_poll_interval_config</code> with separate
-         rates for idle, partial-capacity, and at-capacity states.</p>
+      <h3><span class="badge badge-blue">Pattern</span> QueryEngine → Generation Engine</h3>
+      <p>Claude Code's <code>QueryEngine</code> is an async generator that yields messages and retries on failure.
+         Our Code Generation Engine follows the same pattern: iterate with the LLM, yield intermediate results,
+         and feed failures back as context. Max 5 attempts before human escalation.</p>
     </div>
     <div class="card">
-      <h3><span class="badge badge-green">Transport</span> Capacity Wake</h3>
-      <p>When at capacity, the bridge sleeps but can be woken instantly via <code>CapacityWake</code> —
-         a shared abort-controller primitive. When a session completes, it fires <code>wake()</code>,
-         aborting the sleep so the poll loop immediately checks for new work. No wasted polling cycles.</p>
+      <h3><span class="badge badge-green">Pattern</span> Tool Permission System → Safety Gates</h3>
+      <p>Claude Code checks <code>canUseTool()</code> before every tool execution with allow/deny/ask modes.
+         Our platform checks every generated DB operation against a safety policy:
+         parameterized queries, transaction wrapping, no destructive DDL. Same fail-closed default.</p>
     </div>
     <div class="card">
-      <h3><span class="badge badge-purple">Heartbeat</span> Non-Exclusive Liveness</h3>
-      <p>Heartbeats run alongside polling (not instead of). JWT-authenticated heartbeats extend work leases
-         without hitting the DB-backed poll path. On JWT expiry, <code>reconnectSession()</code> re-queues
-         work server-side so the next poll delivers fresh credentials.</p>
+      <h3><span class="badge badge-purple">Pattern</span> buildTool() Defaults → Runbook Template</h3>
+      <p>Claude Code's <code>buildTool()</code> provides safe defaults (<code>isConcurrencySafe: false</code>,
+         <code>isReadOnly: false</code>). Our runbook template provides safe defaults: transaction wrapping,
+         timeout enforcement, audit logging. The LLM fills in the business logic; the skeleton handles safety.</p>
     </div>
     <div class="card">
-      <h3><span class="badge badge-orange">Isolation</span> Git Worktree Mode</h3>
-      <p>Each session can get its own git worktree — full filesystem isolation without cloning.
-         Worktrees are created at spawn and cleaned up on session completion. Prevents concurrent
-         sessions from stomping each other's file changes.</p>
+      <h3><span class="badge badge-orange">Pattern</span> SerialBatchUploader → Execution Queue</h3>
+      <p>Claude Code serializes all writes through one queue with backpressure and retry.
+         Our execution pipeline does the same: one queue per CRM database, serial execution
+         to prevent write conflicts, exponential backoff on transient failures.</p>
     </div>
     <div class="card">
-      <h3><span class="badge badge-blue">Writes</span> Serial Batch Uploader</h3>
-      <p>All writes go through <code>SerialBatchEventUploader</code> — at most 1 POST in-flight.
-         Events batch during in-flight requests. Exponential backoff with jitter on failure.
-         Backpressure via blocking <code>enqueue()</code> at 100K queue depth. Prevents Firestore
-         write collisions that caused retry storms.</p>
+      <h3><span class="badge badge-red">Pattern</span> Sandbox Isolation → Test Sandbox</h3>
+      <p>Claude Code's <code>SandboxManager</code> restricts file and network access.
+         Our test sandbox is an isolated DB replica where generated code runs without
+         touching production. Schema-identical, data-anonymized, disposable per test run.</p>
     </div>
     <div class="card">
-      <h3><span class="badge badge-green">Reads</span> SSE Sequence Resumption</h3>
-      <p>SSE transport tracks <code>lastSequenceNum</code> and sends <code>Last-Event-ID</code>
-         on reconnect. Server resumes from that point — no full history replay. Duplicate detection
-         via <code>seenSequenceNums</code> set with automatic pruning at 1000 entries.</p>
-    </div>
-    <div class="card">
-      <h3><span class="badge badge-purple">State</span> Immutable Store</h3>
-      <p>Zustand-like store with <code>Object.is()</code> equality check — no-op on identity-equal updates.
-         Listeners fire synchronously on change. <code>DeepImmutable&lt;T&gt;</code> type wrapper prevents
-         accidental mutation of permission contexts and tool rules.</p>
-    </div>
-    <div class="card">
-      <h3><span class="badge badge-orange">Startup</span> Deferred Prefetches</h3>
-      <p>Heavy prefetches (user init, system context, git status, file counting, model capabilities)
-         are deferred until after first render. In <code>--bare</code> mode, ALL prefetches are skipped.
-         Keychain reads and MDM subprocess reads start in parallel before any imports.</p>
+      <h3><span class="badge badge-blue">Pattern</span> FlushGate → Deploy Gate</h3>
+      <p>Claude Code's <code>FlushGate</code> queues messages during initial flush to prevent interleaving.
+         Our deploy gate queues new ticket triggers while a runbook version is being swapped,
+         preventing partial execution during deployment. Same state machine: start → enqueue → end.</p>
     </div>
   </div>
 </section>
 <!-- ============================================================ -->
-<!-- 13. TRICKS OF THE TRADE -->
+<!-- 12. IMPLEMENTATION PHASES -->
 <!-- ============================================================ -->
 <section>
-  <h2>13. Tricks of the Trade</h2>
+  <h2>12. Implementation Phases — Roadmap</h2>
+  <div class="mermaid">
+gantt
+    title Implementation Roadmap
+    dateFormat YYYY-MM-DD
+    axisFormat %b %Y
+
+    section Phase 1 — Foundation
+    AWS infra setup (VPC, RDS, S3, IAM)       :p1a, 2026-05-01, 14d
+    Platform DB schema + API skeleton          :p1b, after p1a, 14d
+    SOP upload UI + parser (PDF/DOCX)          :p1c, after p1a, 21d
+    Bedrock integration + basic prompt         :p1d, after p1b, 14d
+
+    section Phase 2 — Core Engine
+    Schema discovery + prompt builder          :p2a, after p1d, 14d
+    Code generation loop (retry logic)         :p2b, after p2a, 21d
+    Sandbox DB provisioning                    :p2c, after p1d, 14d
+    Test runner (sample I/O validation)        :p2d, after p2b, 14d
+
+    section Phase 3 — Quality & Safety
+    Static analysis gate                       :p3a, after p2d, 10d
+    Integration test suite                     :p3b, after p3a, 14d
+    Security scan + guardrail enforcement      :p3c, after p3a, 10d
+    Human approval workflow UI                 :p3d, after p3b, 10d
+
+    section Phase 4 — Deploy & Operate
+    ServiceNow API integration                 :p4a, after p3d, 14d
+    Automation Record creation                 :p4b, after p4a, 10d
+    Monitoring + alerting + rollback           :p4c, after p4b, 14d
+    Dashboard + execution analytics            :p4d, after p4b, 14d
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 13. PHASE DETAILS -->
+<!-- ============================================================ -->
+<section>
+  <h2>13. Phase Deliverables</h2>
   <div class="grid">
     <div class="card">
-      <h3>🔥 Dead Code Elimination</h3>
-      <p><code>feature('FLAG')</code> from <code>bun:bundle</code> enables build-time DCE.
-         Entire modules (coordinator, assistant, ablation) are tree-shaken from external builds.
-         Conditional <code>require()</code> inside feature gates ensures zero runtime cost.</p>
+      <h3>Phase 1 — Foundation <span class="phase-tag p1">Weeks 1–6</span></h3>
+      <ul>
+        <li>AWS VPC with private subnets for DB access</li>
+        <li>RDS PostgreSQL for platform metadata</li>
+        <li>S3 bucket for SOP docs + runbook artifacts</li>
+        <li>FastAPI service with SSO auth (your company IdP)</li>
+        <li>SOP upload endpoint + PDF/DOCX text extraction</li>
+        <li>LLM-based SOP structuring via Bedrock (Claude 3.5 Sonnet)</li>
+        <li>React upload UI with drag-drop + preview</li>
+        <li>Basic prompt template for code generation</li>
+      </ul>
     </div>
     <div class="card">
-      <h3>🧠 Prompt Cache Preservation</h3>
-      <p>Settings paths use content-hash-based temp files instead of random UUIDs.
-         This prevents busting the Anthropic API prompt cache — identical settings produce
-         the same path across process boundaries, avoiding a 12x input token cost penalty.</p>
+      <h3>Phase 2 — Core Engine <span class="phase-tag p2">Weeks 5–10</span></h3>
+      <ul>
+        <li>DB schema introspection (INFORMATION_SCHEMA queries)</li>
+        <li>Prompt builder: SOP + schema + template → full prompt</li>
+        <li>Code generation loop with retry (max 5 attempts)</li>
+        <li>Sandbox DB provisioning (RDS snapshot + restore)</li>
+        <li>Test runner: seed data → execute → compare output</li>
+        <li>Output diff engine (JSON deep-compare with tolerance)</li>
+        <li>WebSocket progress updates to UI</li>
+        <li>Artifact versioning in S3</li>
+      </ul>
     </div>
     <div class="card">
-      <h3>⚡ Lazy Module Loading</h3>
-      <p>Heavy modules (React components, MessageSelector, coordinator) use lazy <code>require()</code>
-         to avoid circular dependencies and defer evaluation. The CLI entrypoint uses dynamic
-         <code>import()</code> for every fast-path to minimize module evaluation.</p>
+      <h3>Phase 3 — Quality & Safety <span class="phase-tag p3">Weeks 9–13</span></h3>
+      <ul>
+        <li>AST-based static analysis (no raw SQL, no hardcoded creds)</li>
+        <li>Idempotency + rollback integration tests</li>
+        <li>Edge case generation (nulls, duplicates, concurrency)</li>
+        <li>Performance benchmarking (< 30s per execution)</li>
+        <li>Security scan (SQL injection patterns, unsafe ops)</li>
+        <li>Human approval workflow with diff view</li>
+        <li>Staging dry-run against anonymized prod snapshot</li>
+        <li>RBAC: analyst / reviewer / admin roles</li>
+      </ul>
     </div>
     <div class="card">
-      <h3>🔄 FlushGate Pattern</h3>
-      <p>During initial history flush, new messages queue via <code>FlushGate</code> to prevent
-         interleaving with historical messages. State machine: <code>start() → enqueue() → end()</code>.
-         Supports transport replacement without dropping queued items.</p>
-    </div>
-    <div class="card">
-      <h3>📊 Ring Buffer Patterns</h3>
-      <p>Activities, stderr lines, and error logs use fixed-size ring buffers (shift on overflow).
-         In-memory error log uses a 100-entry ring with reference-based watermarks instead of
-         index-based (which break when the buffer shifts during a turn).</p>
-    </div>
-    <div class="card">
-      <h3>🔐 Fail-Closed Defaults</h3>
-      <p><code>buildTool()</code> provides safe defaults: <code>isConcurrencySafe → false</code>,
-         <code>isReadOnly → false</code>, <code>isDestructive → false</code>.
-         Tools must explicitly opt into dangerous capabilities. Permission system denies by default.</p>
-    </div>
-    <div class="card">
-      <h3>🌊 Stream Event Batching</h3>
-      <p>High-frequency <code>stream_event</code> messages accumulate in a 100ms delay buffer
-         before being enqueued. Non-stream writes flush the buffer first to preserve ordering.
-         Reduces POST count dramatically during content streaming.</p>
-    </div>
-    <div class="card">
-      <h3>🏗️ Content-Hash Dedup</h3>
-      <p>Nested memory attachments (CLAUDE.md) track loaded paths in a <code>Set&lt;string&gt;</code>
-         separate from the LRU file cache. The LRU evicts entries in busy sessions, causing
-         re-injection — the Set provides stable dedup across the session lifetime.</p>
-    </div>
-    <div class="card">
-      <h3>🔌 GrowthBook Feature Flags</h3>
-      <p>Runtime feature gates via GrowthBook with 5-minute refresh. Poll intervals, spawn modes,
-         transport selection, and model capabilities are all server-configurable.
-         Blocking gate checks for critical paths, cached checks for hot paths.</p>
-    </div>
-    <div class="card">
-      <h3>📝 Fire-and-Forget Transcripts</h3>
-      <p>Assistant message transcripts use fire-and-forget writes (not awaited) because
-         <code>claude.ts</code> yields one message per content block then mutates usage on
-         <code>message_delta</code>. The write queue's 100ms lazy stringify captures the mutation.
-         User messages are awaited for resumability.</p>
-    </div>
-    <div class="card">
-      <h3>🧩 Snip Compaction</h3>
-      <p>Long conversations use snip-boundary compaction — feature-gated via <code>HISTORY_SNIP</code>.
-         The QueryEngine truncates in-place for SDK (no UI), while the REPL projects a snipped view
-         on demand (preserving full history for scrollback).</p>
-    </div>
-    <div class="card">
-      <h3>🔀 Abort Controller Composition</h3>
-      <p>Multiple abort signals are merged via <code>combinedAbortSignal</code> and
-         <code>CapacityWake</code>. Cleanup functions remove listeners to prevent memory leaks.
-         The pattern: create merged controller, listen on both sources, return cleanup.</p>
+      <h3>Phase 4 — Deploy & Operate <span class="phase-tag p4">Weeks 12–17</span></h3>
+      <ul>
+        <li>ServiceNow Table API integration</li>
+        <li>Automation Record creation with trigger rules</li>
+        <li>Flow Designer webhook registration</li>
+        <li>Execution worker (Lambda, connection-pooled)</li>
+        <li>CloudWatch metrics + alarms</li>
+        <li>Circuit breaker (auto-disable on failure spike)</li>
+        <li>Rollback mechanism (revert to previous version)</li>
+        <li>Dashboard: success rates, latency, cost per automation</li>
+      </ul>
     </div>
   </div>
 </section>
 <!-- ============================================================ -->
-<!-- 14. DATA FLOW — END TO END -->
+<!-- 14. TECH STACK -->
 <!-- ============================================================ -->
 <section>
-  <h2>14. End-to-End Data Flow</h2>
+  <h2>14. Recommended Tech Stack</h2>
+  <table>
+    <thead>
+      <tr><th>Layer</th><th>Technology</th><th>Rationale</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>LLM</td><td>AWS Bedrock — Claude 3.5 Sonnet</td><td>Best code generation quality; native AWS integration; no data leaves your VPC</td></tr>
+      <tr><td>Backend API</td><td>Python FastAPI on ECS Fargate</td><td>Async-native, great for streaming Bedrock responses; type-safe with Pydantic</td></tr>
+      <tr><td>Task Queue</td><td>Amazon SQS + Celery</td><td>Decouples generation/testing from API; FIFO for ordered SOP processing</td></tr>
+      <tr><td>Frontend</td><td>React + Vite</td><td>Fast dev cycle; rich diff viewer components available (react-diff-viewer)</td></tr>
+      <tr><td>Platform DB</td><td>Amazon RDS PostgreSQL</td><td>JSONB for structured SOPs; strong typing; mature ecosystem</td></tr>
+      <tr><td>Sandbox DB</td><td>RDS Snapshot + Restore</td><td>Schema-identical replicas; disposable; automated provisioning</td></tr>
+      <tr><td>Artifact Store</td><td>Amazon S3 + versioning</td><td>Immutable runbook versions; signed URLs for ServiceNow fetch</td></tr>
+      <tr><td>Secrets</td><td>AWS Secrets Manager</td><td>Rotate DB creds without code changes; IAM-based access</td></tr>
+      <tr><td>Execution</td><td>AWS Lambda</td><td>Per-ticket execution; scales to 1000 concurrent; pay-per-use</td></tr>
+      <tr><td>Monitoring</td><td>CloudWatch + Grafana</td><td>Native AWS metrics; Grafana for dashboards your team already uses</td></tr>
+      <tr><td>ServiceNow</td><td>Table API + Flow Designer</td><td>Standard ITSM integration; webhook triggers; scoped app isolation</td></tr>
+      <tr><td>Auth</td><td>Company SSO (SAML/OIDC)</td><td>Single sign-on; RBAC via group claims</td></tr>
+      <tr><td>IaC</td><td>Terraform / CDK</td><td>Reproducible infra; PR-based changes; drift detection</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<!-- 15. RISK MATRIX -->
+<!-- ============================================================ -->
+<section>
+  <h2>15. Risk Matrix & Mitigations</h2>
+  <table>
+    <thead>
+      <tr><th>Risk</th><th>Impact</th><th>Likelihood</th><th>Mitigation</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>LLM generates incorrect SQL logic</td>
+        <td><span class="badge badge-red">High</span></td>
+        <td><span class="badge badge-orange">Medium</span></td>
+        <td>4-gate testing pipeline; sample I/O validation; human approval before deploy</td>
+      </tr>
+      <tr>
+        <td>CRM schema changes break deployed runbooks</td>
+        <td><span class="badge badge-red">High</span></td>
+        <td><span class="badge badge-orange">Medium</span></td>
+        <td>Schema drift detection; auto-disable on column mismatch; alert + re-generate</td>
+      </tr>
+      <tr>
+        <td>Bedrock rate limits during bulk generation</td>
+        <td><span class="badge badge-orange">Medium</span></td>
+        <td><span class="badge badge-green">Low</span></td>
+        <td>Queue-based decoupling; exponential backoff; provisioned throughput</td>
+      </tr>
+      <tr>
+        <td>Runbook causes data corruption in production</td>
+        <td><span class="badge badge-red">Critical</span></td>
+        <td><span class="badge badge-green">Low</span></td>
+        <td>Transaction wrapping; idempotency guards; auto-rollback on error rate > 5%</td>
+      </tr>
+      <tr>
+        <td>ServiceNow API changes break deployment</td>
+        <td><span class="badge badge-orange">Medium</span></td>
+        <td><span class="badge badge-green">Low</span></td>
+        <td>Version-pinned API calls; integration test suite; abstraction layer</td>
+      </tr>
+      <tr>
+        <td>SOP ambiguity leads to wrong code</td>
+        <td><span class="badge badge-orange">Medium</span></td>
+        <td><span class="badge badge-red">High</span></td>
+        <td>Structured SOP form as alternative to free-text; LLM asks clarifying questions; sample I/O as ground truth</td>
+      </tr>
+      <tr>
+        <td>Sandbox DB diverges from production schema</td>
+        <td><span class="badge badge-orange">Medium</span></td>
+        <td><span class="badge badge-orange">Medium</span></td>
+        <td>Nightly snapshot refresh; schema comparison on test start; fail-fast on mismatch</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+<!-- ============================================================ -->
+<!-- 16. FULL LIFECYCLE SEQUENCE -->
+<!-- ============================================================ -->
+<section>
+  <h2>16. Full Lifecycle — End-to-End Sequence</h2>
   <p class="desc">
-    Complete flow from user input through the system, showing how a remote session processes
-    a message through the bridge, transport, query engine, and back.
+    The complete journey of an SOP from upload to automated ticket resolution,
+    showing every system interaction.
   </p>
   <div class="mermaid">
 sequenceDiagram
-    participant Web as Web Client
-    participant SI as Session Ingress
-    participant Bridge as Bridge Process
-    participant Child as Child CLI Process
-    participant QE as QueryEngine
-    participant API as Claude API
-    participant Tool as Tool (e.g. BashTool)
-    participant FS as File System
+    participant Analyst as CRM Analyst
+    participant Portal as Web Portal
+    participant API as Platform API
+    participant Parser as SOP Parser
+    participant Bedrock as AWS Bedrock
+    participant Sandbox as Sandbox DB
+    participant Reviewer as Reviewer
+    participant SNOW as ServiceNow
+    participant Lambda as Lambda Worker
+    participant CRM as CRM Database
 
-    Web->>SI: User sends message
-    SI->>Bridge: WebSocket frame
-    Bridge->>Child: stdin NDJSON
+    Analyst->>Portal: Upload SOP + sample I/O
+    Portal->>API: POST /sop (multipart)
+    API->>Parser: Parse document
+    Parser->>Bedrock: Extract structure
+    Bedrock-->>Parser: Structured SOP JSON
+    Parser->>API: Schema-validated SOP
+    API-->>Portal: SOP created ✓
 
-    Child->>QE: submitMessage(prompt)
-    QE->>QE: processUserInput()
-    QE->>FS: recordTranscript()
+    API->>API: Enqueue generation job
+    API->>Bedrock: Generate runbook code<br/>(SOP + DB schema + template)
+    Bedrock-->>API: Python runbook v1
 
-    QE->>API: POST /messages (streaming)
-    API-->>QE: content_block_start
-    API-->>QE: content_block_delta (text)
-    QE-->>Child: yield assistant message
-    Child-->>Bridge: stdout NDJSON
-    Bridge-->>SI: HTTP POST /events (batched)
-    SI-->>Web: WebSocket push
+    API->>API: Static analysis (AST + lint)
+    API->>Sandbox: Seed test data
+    API->>Sandbox: Execute runbook
+    Sandbox-->>API: Output
 
-    API-->>QE: content_block_start (tool_use)
-    QE->>QE: checkPermissions()
-    QE->>Tool: tool.call(args)
-    Tool->>FS: Execute operation
-    FS-->>Tool: Result
-    Tool-->>QE: ToolResult
+    alt Output matches expected
+        API->>API: Run integration tests<br/>(idempotency, rollback, edge cases)
+        API-->>Portal: All tests passed ✓
+        Portal->>Reviewer: Request approval
+        Reviewer->>Portal: Approved ✓
 
-    QE->>API: POST /messages (tool_result)
-    API-->>QE: Final text response
-    QE-->>Child: yield result
-    Child-->>Bridge: stdout NDJSON
-    Bridge-->>SI: HTTP POST /events
-    SI-->>Web: WebSocket push
+        API->>SNOW: Create Automation Record
+        SNOW-->>API: Record ID
+        API->>SNOW: Register Flow Designer trigger
+        API-->>Portal: Deployed ✓
+    else Output mismatch
+        API->>Bedrock: Fix code (diff as context)
+        Note over API,Bedrock: Retry loop (max 5)
+    end
+
+    Note over SNOW,CRM: Later — ticket arrives
+
+    SNOW->>Lambda: Trigger: matching ticket
+    Lambda->>CRM: Execute runbook
+    CRM-->>Lambda: Result
+    Lambda->>SNOW: Update ticket + log
+    Lambda->>API: Record execution metrics
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 17. KEY METRICS -->
+<!-- ============================================================ -->
+<section>
+  <h2>17. Success Metrics</h2>
+  <div class="grid-3">
+    <div class="card">
+      <h3>📊 Automation Rate</h3>
+      <p>% of grievance tickets resolved without human intervention. Target: 60% of repetitive ticket types within 6 months.</p>
+    </div>
+    <div class="card">
+      <h3>⏱️ Resolution Time</h3>
+      <p>Average time from ticket creation to resolution. Target: < 5 minutes for automated tickets (vs hours/days manual).</p>
+    </div>
+    <div class="card">
+      <h3>✅ Accuracy Rate</h3>
+      <p>% of automated resolutions that are correct (no re-open). Target: > 95% accuracy before scaling.</p>
+    </div>
+    <div class="card">
+      <h3>🔄 Generation Success</h3>
+      <p>% of SOPs that produce passing code within 5 LLM attempts. Target: > 80% first-pass success.</p>
+    </div>
+    <div class="card">
+      <h3>💰 Cost per Automation</h3>
+      <p>Bedrock API cost + compute cost per SOP onboarded. Track to ensure ROI vs manual resolution cost.</p>
+    </div>
+    <div class="card">
+      <h3>🛡️ Safety Record</h3>
+      <p>Zero data corruption incidents. Zero unauthorized data access. 100% audit trail coverage.</p>
+    </div>
   </div>
 </section>
 
 </div>
 
 <footer>
-  Architecture analysis generated from source code — Claude Code codebase
+  Grievance Automation Platform — Architecture Plan
 </footer>
 
 <script>
